@@ -12,13 +12,19 @@ interface AgentResponse {
   suggestions?: string[];
 }
 
+interface Message {
+  role: string;
+  text: string;
+  companies?: string[];
+}
+
 function App() {
   const [sessionId, setSessionId] = useState<string>("");
-  const [messages, setMessages] = useState<{ role: string; text: string }[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>("");
   const [listening, setListening] = useState<boolean>(false);
   const [isOpen, setIsOpen] = useState<boolean>(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const apiBase = import.meta.env.VITE_API_BASE_URL;
 
@@ -55,8 +61,41 @@ function App() {
       message: msg,
     });
 
-    setMessages((prev) => [...prev, { role: "assistant", text: res.data.message }]);
+    const assistantMessage = res.data.message;
+    const newMessages = [...messages, { role: "user", text: msg }];
+
+    // 🔍 Check if backend response includes "List of Company"
+    if (assistantMessage.toLowerCase().includes("list of company")) {
+      try {
+        const jsonRes = await axios.get("/static/user.json"); // 👈 ensure file is in public/static/
+        const companyList: string[] = jsonRes.data.company_list;
+
+        setMessages([
+          ...newMessages,
+          { role: "assistant", text: assistantMessage },
+          { role: "assistant", text: "Please select your company:", companies: companyList },
+        ]);
+      } catch (err) {
+        console.error("Error loading company list:", err);
+        setMessages([
+          ...newMessages,
+          { role: "assistant", text: assistantMessage },
+          { role: "assistant", text: "⚠️ Could not load company list." },
+        ]);
+      }
+    } else {
+      setMessages([
+        ...newMessages,
+        { role: "assistant", text: assistantMessage },
+      ]);
+    }
+
     playAudio(res.data.audio_url);
+  };
+
+  // 🏢 Handle company selection
+  const handleCompanySelect = (companyName: string) => {
+    sendMessage(companyName);
   };
 
   // 🎤 Voice input (Speech-to-Text)
@@ -150,6 +189,19 @@ function App() {
               <div className="message-bubble">
                 {m.text}
               </div>
+              {m.companies && m.companies.length > 0 && (
+                <div className="company-buttons">
+                  {m.companies.map((company, idx) => (
+                    <button
+                      key={idx}
+                      className="company-button"
+                      onClick={() => handleCompanySelect(company)}
+                    >
+                      🏢 {company}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
           <div ref={messagesEndRef} />
